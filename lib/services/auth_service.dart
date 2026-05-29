@@ -1,0 +1,96 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../core/config.dart';
+import '../core/dio_client.dart';
+import '../data/api/auth_api.dart';
+import '../data/api/usuario_api.dart';
+import '../data/models/auth_session.dart';
+import '../data/models/usuario.dart';
+
+class AuthService {
+  AuthService({
+    FlutterSecureStorage? storage,
+    AuthApi? authApi,
+    UsuarioApi? usuarioApi,
+  })  : _storage = storage ?? const FlutterSecureStorage(),
+        _authApi = authApi ?? AuthApi(buildDio()),
+        _usuarioApi = usuarioApi ?? UsuarioApi(buildDio());
+
+  final FlutterSecureStorage _storage;
+  final AuthApi _authApi;
+  final UsuarioApi _usuarioApi;
+
+  static const _jwtKey = 'jwt';
+  static const _tenantKey = 'tenant_id';
+  static const _usuarioKey = 'usuario_id';
+  static const _rolKey = 'rol';
+
+  Future<AuthSession> login({
+    required String email,
+    required String password,
+    String? tenantId,
+  }) async {
+    final session = await _authApi.login(
+      email: email,
+      password: password,
+      tenantId: tenantId ?? Config.defaultTenantId,
+    );
+    await _persistSession(session);
+    return session;
+  }
+
+  Future<void> register({
+    required String nombre,
+    required String email,
+    required String telefono,
+    required String password,
+  }) async {
+    await _authApi.register(
+      nombre: nombre,
+      email: email,
+      telefono: telefono,
+      password: password,
+    );
+  }
+
+  Future<void> logout() async {
+    try {
+      await _authApi.logout();
+    } catch (_) {
+      // Clear local session even if server call fails.
+    }
+    await clearSession();
+  }
+
+  Future<bool> isLoggedIn() async {
+    final token = await _storage.read(key: _jwtKey);
+    return token != null && token.isNotEmpty;
+  }
+
+  Future<String?> getToken() => _storage.read(key: _jwtKey);
+
+  Future<String?> getTenantId() => _storage.read(key: _tenantKey);
+
+  Future<Usuario?> getProfile() async {
+    if (!await isLoggedIn()) return null;
+    try {
+      return await _usuarioApi.me();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _persistSession(AuthSession session) async {
+    await _storage.write(key: _jwtKey, value: session.accessToken);
+    await _storage.write(key: _tenantKey, value: session.tenantId);
+    await _storage.write(key: _usuarioKey, value: session.usuarioId);
+    await _storage.write(key: _rolKey, value: session.rol);
+  }
+
+  Future<void> clearSession() async {
+    await _storage.delete(key: _jwtKey);
+    await _storage.delete(key: _tenantKey);
+    await _storage.delete(key: _usuarioKey);
+    await _storage.delete(key: _rolKey);
+  }
+}
