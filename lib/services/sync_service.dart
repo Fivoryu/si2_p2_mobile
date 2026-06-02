@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
 
+import '../core/api_errors.dart';
 import '../core/dio_client.dart';
 import '../data/local_db.dart';
 
@@ -22,6 +24,21 @@ class SyncService {
     return _isOnline(results);
   }
 
+  static List<Map<String, dynamic>> _normalizeEvidencias(List<dynamic> raw) {
+    return raw.map((e) {
+      final m = Map<String, dynamic>.from(e as Map);
+      if (m.containsKey('contenido_base64') && !m.containsKey('contenido_b64')) {
+        m['contenido_b64'] = m.remove('contenido_base64');
+      }
+      if (!m.containsKey('mime_type')) {
+        final tipo = m['tipo'] as String? ?? 'IMAGEN';
+        m['mime_type'] = tipo == 'AUDIO' ? 'audio/aac' : 'image/jpeg';
+      }
+      return m;
+    }).toList();
+  }
+
+  /// Returns synced count, or throws with [messageFromDio] message on failure.
   static Future<int> syncNow() async {
     final pend = await LocalDb.pending();
     if (pend.isEmpty) return 0;
@@ -38,7 +55,9 @@ class SyncService {
           'direccion': p['direccion'],
           'client_created_at': p['client_created_at'],
           'client_updated_at': p['client_updated_at'],
-          'evidencias': jsonDecode(p['evidencias'] as String? ?? '[]'),
+          'evidencias': _normalizeEvidencias(
+            jsonDecode(p['evidencias'] as String? ?? '[]') as List<dynamic>,
+          ),
         };
       }).toList(),
     };
@@ -59,8 +78,16 @@ class SyncService {
         synced++;
       }
       return synced;
-    } catch (_) {
-      return 0;
+    } on DioException catch (e) {
+      for (final p in pend) {
+        await LocalDb.markError(p['id_local'] as String);
+      }
+      throw Exception(messageFromDio(e));
+    } catch (e) {
+      for (final p in pend) {
+        await LocalDb.markError(p['id_local'] as String);
+      }
+      rethrow;
     }
   }
 }

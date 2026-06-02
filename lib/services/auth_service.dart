@@ -1,7 +1,6 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../core/config.dart';
-import '../core/dio_client.dart';
 import '../data/api/auth_api.dart';
 import '../data/api/usuario_api.dart';
 import '../data/models/auth_session.dart';
@@ -9,12 +8,11 @@ import '../data/models/usuario.dart';
 
 class AuthService {
   AuthService({
+    required Dio dio,
     FlutterSecureStorage? storage,
-    AuthApi? authApi,
-    UsuarioApi? usuarioApi,
   })  : _storage = storage ?? const FlutterSecureStorage(),
-        _authApi = authApi ?? AuthApi(buildDio()),
-        _usuarioApi = usuarioApi ?? UsuarioApi(buildDio());
+        _authApi = AuthApi(dio),
+        _usuarioApi = UsuarioApi(dio);
 
   final FlutterSecureStorage _storage;
   final AuthApi _authApi;
@@ -33,7 +31,7 @@ class AuthService {
     final session = await _authApi.login(
       email: email,
       password: password,
-      tenantId: tenantId ?? Config.defaultTenantId,
+      tenantId: tenantId,
     );
     await _persistSession(session);
     return session;
@@ -71,6 +69,8 @@ class AuthService {
 
   Future<String?> getTenantId() => _storage.read(key: _tenantKey);
 
+  Future<String?> getRol() => _storage.read(key: _rolKey);
+
   Future<Usuario?> getProfile() async {
     if (!await isLoggedIn()) return null;
     try {
@@ -82,7 +82,9 @@ class AuthService {
 
   Future<void> _persistSession(AuthSession session) async {
     await _storage.write(key: _jwtKey, value: session.accessToken);
-    await _storage.write(key: _tenantKey, value: session.tenantId);
+    if (session.tenantId != null) {
+      await _storage.write(key: _tenantKey, value: session.tenantId);
+    }
     await _storage.write(key: _usuarioKey, value: session.usuarioId);
     await _storage.write(key: _rolKey, value: session.rol);
   }
