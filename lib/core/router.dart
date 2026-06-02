@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
+import '../screens/asignacion_detail_screen.dart';
 import '../screens/history_screen.dart';
 import '../screens/home_screen.dart';
+import '../screens/incident_detail_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/new_incident_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/taller_home_screen.dart';
 import '../screens/tracking_screen.dart';
+import '../screens/vehicle_form_screen.dart';
 import '../screens/vehicles_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -22,7 +27,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loggedIn = authAsync.when<bool?>(
         data: (v) => v,
         loading: () => null,
-        error: (_, __) => false,
+        error: (e, s) => false,
       );
       if (loggedIn == null) return null;
 
@@ -30,13 +35,17 @@ final routerProvider = Provider<GoRouter>((ref) {
           state.matchedLocation == '/register';
 
       if (!loggedIn && !onAuth) return '/login';
-      if (loggedIn && onAuth) return '/home';
+      if (loggedIn && onAuth) {
+        return '/home';
+      }
       return null;
     },
     routes: [
       GoRoute(
         path: '/login',
-        builder: (context, state) => const LoginScreen(),
+        builder: (context, state) => LoginScreen(
+          initialEmail: state.uri.queryParameters['email'],
+        ),
       ),
       GoRoute(
         path: '/register',
@@ -45,6 +54,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home',
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/taller-home',
+        builder: (context, state) => const TallerHomeScreen(),
       ),
       GoRoute(
         path: '/new-incident',
@@ -58,12 +71,36 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/incident/:id',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          final local = state.extra as Incidente?;
+          return IncidentDetailScreen(
+            incidentId: id,
+            localIncident: local,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/asignacion/:id',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return AsignacionDetailScreen(asignacionId: id);
+        },
+      ),
+      GoRoute(
         path: '/history',
         builder: (context, state) => const HistoryScreen(),
       ),
       GoRoute(
         path: '/vehicles',
         builder: (context, state) => const VehiclesScreen(),
+        routes: [
+          GoRoute(
+            path: 'new',
+            builder: (context, state) => const VehicleFormScreen(),
+          ),
+        ],
       ),
       GoRoute(
         path: '/profile',
@@ -75,7 +112,8 @@ final routerProvider = Provider<GoRouter>((ref) {
 
 class _RouterRefresh extends ChangeNotifier {
   _RouterRefresh(this.ref) {
-    ref.listen(authStateProvider, (_, __) => notifyListeners());
+    ref.listen(authStateProvider, (_, a) => notifyListeners());
+    ref.listen(loginProvider, (_, b) => notifyListeners());
   }
 
   final Ref ref;
