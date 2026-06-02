@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/api_errors.dart';
 import '../core/config.dart';
 import '../providers/app_providers.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialEmail});
+
+  final String? initialEmail;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -14,11 +17,20 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  late final _emailCtrl =
-      TextEditingController(text: Config.demoEmail);
-  late final _passwordCtrl =
-      TextEditingController(text: Config.demoPassword);
+  late final TextEditingController _emailCtrl;
+  late final TextEditingController _passwordCtrl;
   bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl = TextEditingController(
+      text: widget.initialEmail ?? Config.demoEmail,
+    );
+    _passwordCtrl = TextEditingController(
+      text: widget.initialEmail == null ? Config.demoPassword : '',
+    );
+  }
 
   @override
   void dispose() {
@@ -37,7 +49,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final state = ref.read(loginProvider);
     if (state.hasError) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${state.error}')),
+        SnackBar(content: Text(messageFromDio(state.error!))),
       );
       return;
     }
@@ -80,8 +92,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       labelText: 'Correo',
                       prefixIcon: Icon(Icons.email_outlined),
                     ),
-                    validator: (v) =>
-                        v == null || v.isEmpty ? 'Ingrese su correo' : null,
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) {
+                        return 'Ingrese su correo';
+                      }
+                      if (!isValidEmail(v)) {
+                        return 'Correo inválido (ej. usuario@mail.com)';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
                   TextFormField(

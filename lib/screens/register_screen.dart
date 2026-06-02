@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/api_errors.dart';
 import '../providers/app_providers.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -42,11 +43,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cuenta creada. Inicie sesión.')),
       );
-      context.go('/login');
+      context.go(
+        '/login?email=${Uri.encodeComponent(_emailCtrl.text.trim())}',
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text(messageFromDio(e))),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -76,8 +79,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(labelText: 'Correo'),
-                  validator: (v) =>
-                      v == null || !v.contains('@') ? 'Correo inválido' : null,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Requerido';
+                    }
+                    if (!isValidEmail(v)) {
+                      return 'Correo inválido (ej. usuario@mail.com)';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
                 TextFormField(

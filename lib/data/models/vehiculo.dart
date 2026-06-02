@@ -31,8 +31,8 @@ class Vehiculo {
 
   Map<String, dynamic> toCreateJson() => {
         'placa': placa,
-        if (marca != null) 'marca': marca,
-        if (modelo != null) 'modelo': modelo,
+        'marca': marca ?? '',
+        'modelo': modelo ?? '',
         if (anio != null) 'anio': anio,
         if (color != null) 'color': color,
         if (tipoCombustible != null) 'tipo_combustible': tipoCombustible,

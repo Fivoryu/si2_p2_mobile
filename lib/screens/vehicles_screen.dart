@@ -1,112 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../core/api_errors.dart';
 import '../data/models/vehiculo.dart';
 import '../providers/app_providers.dart';
 
-class VehiclesScreen extends ConsumerStatefulWidget {
+class VehiclesScreen extends ConsumerWidget {
   const VehiclesScreen({super.key});
 
-  @override
-  ConsumerState<VehiclesScreen> createState() => _VehiclesScreenState();
-}
-
-class _VehiclesScreenState extends ConsumerState<VehiclesScreen> {
-  Future<void> _showAddDialog() async {
-    final placaCtrl = TextEditingController();
-    final marcaCtrl = TextEditingController();
-    final modeloCtrl = TextEditingController();
-    final anioCtrl = TextEditingController();
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nuevo vehículo'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: placaCtrl,
-                decoration: const InputDecoration(labelText: 'Placa *'),
-              ),
-              TextField(
-                controller: marcaCtrl,
-                decoration: const InputDecoration(labelText: 'Marca'),
-              ),
-              TextField(
-                controller: modeloCtrl,
-                decoration: const InputDecoration(labelText: 'Modelo'),
-              ),
-              TextField(
-                controller: anioCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Año'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-
-    if (saved != true || placaCtrl.text.trim().isEmpty) {
-      placaCtrl.dispose();
-      marcaCtrl.dispose();
-      modeloCtrl.dispose();
-      anioCtrl.dispose();
-      return;
-    }
-
-    try {
-      await ref.read(vehiculoApiProvider).create(
-            Vehiculo(
-              id: '',
-              placa: placaCtrl.text.trim().toUpperCase(),
-              marca: marcaCtrl.text.trim().isEmpty
-                  ? null
-                  : marcaCtrl.text.trim(),
-              modelo: modeloCtrl.text.trim().isEmpty
-                  ? null
-                  : modeloCtrl.text.trim(),
-              anio: int.tryParse(anioCtrl.text.trim()),
-            ),
-          );
-      ref.invalidate(vehiculosProvider);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vehículo registrado')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    } finally {
-      placaCtrl.dispose();
-      marcaCtrl.dispose();
-      modeloCtrl.dispose();
-      anioCtrl.dispose();
-    }
-  }
-
-  Future<void> _delete(Vehiculo v) async {
+  Future<void> _delete(BuildContext context, WidgetRef ref, Vehiculo v) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        icon: const Icon(Icons.delete_outline),
         title: const Text('Eliminar vehículo'),
-        content: Text('¿Eliminar ${v.placa}?'),
+        content: Text(
+          '¿Eliminar ${v.placa}? Esta acción no se puede deshacer.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -125,48 +36,127 @@ class _VehiclesScreenState extends ConsumerState<VehiclesScreen> {
     try {
       await ref.read(vehiculoApiProvider).delete(v.id);
       ref.invalidate(vehiculosProvider);
-    } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text('${v.placa} eliminado')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(messageFromDio(e))),
         );
       }
     }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final vehiculosAsync = ref.watch(vehiculosProvider);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mis vehículos')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddDialog,
-        child: const Icon(Icons.add),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/vehicles/new'),
+        icon: const Icon(Icons.add),
+        label: const Text('Agregar'),
       ),
       body: vehiculosAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: colorScheme.error),
+                const SizedBox(height: 12),
+                Text(
+                  messageFromDio(e),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => ref.invalidate(vehiculosProvider),
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (items) {
           if (items.isEmpty) {
-            return const Center(
-              child: Text('No tiene vehículos registrados'),
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.directions_car_outlined,
+                      size: 72,
+                      color: colorScheme.primary.withValues(alpha: 0.6),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Sin vehículos',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Agregue su vehículo para poder reportar emergencias.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: () => context.push('/vehicles/new'),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Registrar vehículo'),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(8),
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
             itemCount: items.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final v = items[index];
-              return ListTile(
-                leading: const Icon(Icons.directions_car),
-                title: Text(v.placa),
-                subtitle: Text(v.label),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _delete(v),
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  leading: CircleAvatar(
+                    backgroundColor: colorScheme.primaryContainer,
+                    child: Icon(
+                      Icons.directions_car,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  title: Text(
+                    v.placa,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    [v.marca, v.modelo, v.anio?.toString()]
+                        .whereType<String>()
+                        .where((s) => s.isNotEmpty)
+                        .join(' · '),
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Eliminar',
+                    icon: Icon(Icons.delete_outline, color: colorScheme.error),
+                    onPressed: () => _delete(context, ref, v),
+                  ),
                 ),
               );
             },

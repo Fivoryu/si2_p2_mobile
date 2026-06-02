@@ -8,8 +8,8 @@ class VehiculoApi {
   final Dio _dio;
 
   Future<List<Vehiculo>> list() async {
-    final response = await _dio.get<List<dynamic>>('/vehiculos');
-    final items = response.data ?? [];
+    final response = await _dio.get<Map<String, dynamic>>('/vehiculos');
+    final items = response.data?['items'] as List<dynamic>? ?? [];
     return items
         .cast<Map<String, dynamic>>()
         .map(Vehiculo.fromJson)
@@ -21,7 +21,16 @@ class VehiculoApi {
       '/vehiculos',
       data: vehiculo.toCreateJson(),
     );
-    return Vehiculo.fromJson(response.data!);
+    final id = response.data!['id'] as String;
+    return Vehiculo(
+      id: id,
+      placa: vehiculo.placa,
+      marca: vehiculo.marca,
+      modelo: vehiculo.modelo,
+      anio: vehiculo.anio,
+      color: vehiculo.color,
+      tipoCombustible: vehiculo.tipoCombustible,
+    );
   }
 
   Future<void> delete(String id) async {

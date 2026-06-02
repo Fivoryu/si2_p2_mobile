@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 
 import '../models/auth_session.dart';
-import '../../core/config.dart';
 
 class AuthApi {
   AuthApi(this._dio);
@@ -13,13 +12,17 @@ class AuthApi {
     required String password,
     String? tenantId,
   }) async {
+    final data = <String, dynamic>{
+      'email': email,
+      'password': password,
+    };
+    if (tenantId != null) {
+      data['tenant_id'] = tenantId;
+    }
+
     final response = await _dio.post<Map<String, dynamic>>(
       '/auth/login',
-      data: {
-        'email': email,
-        'password': password,
-        'tenant_id': tenantId ?? Config.defaultTenantId,
-      },
+      data: data,
     );
     return AuthSession.fromJson(response.data!);
   }
