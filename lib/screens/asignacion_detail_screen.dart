@@ -318,26 +318,15 @@ class _AsignacionDetailScreenState extends ConsumerState<AsignacionDetailScreen>
                   ),
                 ],
                 if (asig.estado == 'ACEPTADO') ...[
-                  Card(
-                    color: colorScheme.primaryContainer,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.check_circle,
-                            color: colorScheme.onPrimaryContainer,
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Esta solicitud ya fue aceptada. '
-                              'El conductor está siendo notificado.',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  const SizedBox(height: 16),
+                  _StatusActions(
+                    incidenteEstado: asig.incidenteEstado ?? 'TALLER_ASIGNADO',
+                    incidenteId: asig.incidenteId,
+                    loading: _loading,
+                    onLoadingChange: (v) => setState(() => _loading = v),
+                    onActionDone: () {
+                      ref.invalidate(asignacionesProvider);
+                    },
                   ),
                 ],
                 if (asig.motivoRechazo != null) ...[
@@ -374,6 +363,179 @@ class _AsignacionDetailScreenState extends ConsumerState<AsignacionDetailScreen>
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _StatusActions extends ConsumerWidget {
+  const _StatusActions({
+    required this.incidenteEstado,
+    required this.incidenteId,
+    required this.loading,
+    required this.onLoadingChange,
+    required this.onActionDone,
+  });
+
+  final String incidenteEstado;
+  final String incidenteId;
+  final bool loading;
+  final ValueChanged<bool> onLoadingChange;
+  final VoidCallback onActionDone;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    if (incidenteEstado == 'FINALIZADO' || incidenteEstado == 'PAGADO') {
+      return Card(
+        color: colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, color: colorScheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  incidenteEstado == 'FINALIZADO'
+                      ? 'Servicio finalizado'
+                      : 'Servicio pagado',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Acciones del técnico',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        if (incidenteEstado == 'TALLER_ASIGNADO' || incidenteEstado == 'ACEPTADO') ...[
+          _ActionButton(
+            label: 'Iniciar Camino',
+            icon: Icons.directions_car,
+            color: colorScheme.primary,
+            onPressed: loading
+                ? null
+                : () => _cambiarEstado(context, ref, 'EN_CAMINO'),
+          ),
+          const SizedBox(height: 8),
+          _ActionButton(
+            label: 'Simular Ruta + En Camino',
+            icon: Icons.play_arrow,
+            color: colorScheme.tertiary,
+            onPressed: loading
+                ? null
+                : () => _simularYRuta(context, ref),
+          ),
+        ],
+        if (incidenteEstado == 'EN_CAMINO') ...[
+          _ActionButton(
+            label: 'Marcar Llegada',
+            icon: Icons.place,
+            color: colorScheme.secondary,
+            onPressed: loading
+                ? null
+                : () => _cambiarEstado(context, ref, 'EN_ATENCION'),
+          ),
+        ],
+        if (incidenteEstado == 'EN_ATENCION') ...[
+          _ActionButton(
+            label: 'Finalizar Servicio',
+            icon: Icons.check_circle,
+            color: colorScheme.primary,
+            onPressed: loading
+                ? null
+                : () => _cambiarEstado(context, ref, 'FINALIZADO'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _cambiarEstado(BuildContext context, WidgetRef ref, String nuevoEstado) async {
+    onLoadingChange(true);
+    try {
+      await ref.read(incidenteApiProvider).cambiarEstado(incidenteId, nuevoEstado);
+      onActionDone();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Estado actualizado a $nuevoEstado')),
+        );
+        context.pop();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${messageFromDio(e)}')),
+        );
+      }
+    } finally {
+      onLoadingChange(false);
+    }
+  }
+
+  Future<void> _simularYRuta(BuildContext context, WidgetRef ref) async {
+    onLoadingChange(true);
+    try {
+      await ref.read(incidenteApiProvider).iniciarSimulacion(
+        incidenteId,
+        velocidadKmh: 40.0,
+        usarFake: true,
+        intervaloSeg: 3.0,
+      );
+      await ref.read(incidenteApiProvider).cambiarEstado(incidenteId, 'EN_CAMINO');
+      onActionDone();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Simulación iniciada. Técnico en camino.')),
+        );
+        context.pop();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${messageFromDio(e)}')),
+        );
+      }
+    } finally {
+      onLoadingChange(false);
+    }
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20),
+        label: Text(label),
+        style: FilledButton.styleFrom(
+          backgroundColor: color,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
       ),
     );
   }

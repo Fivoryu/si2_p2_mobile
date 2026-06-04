@@ -12,6 +12,7 @@ import '../screens/login_screen.dart';
 import '../screens/new_incident_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/settings_tecnico_screen.dart';
 import '../screens/taller_home_screen.dart';
 import '../screens/tracking_screen.dart';
 import '../screens/vehicle_form_screen.dart';
@@ -105,6 +106,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/settings/tecnico',
+        builder: (context, state) => const SettingsTecnicoScreen(),
       ),
     ],
   );

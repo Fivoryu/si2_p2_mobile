@@ -58,10 +58,55 @@ class IncidenteApi {
     );
   }
 
-  Future<void> calificar(String incidenteId, int estrellas, {String? comentario}) async {
+Future<void> calificar(String incidenteId, int estrellas, {String? comentario}) async {
     await _dio.post<Map<String, dynamic>>(
       '/incidentes/$incidenteId/calificacion',
       data: {'estrellas': estrellas, 'comentario': comentario},
+    );
+  }
+
+  Future<void> enviarUbicacion(
+    String incidenteId, {
+    required double lat,
+    required double lng,
+    String? tecnicoId,
+    bool esFake = false,
+  }) async {
+    await _dio.post<Map<String, dynamic>>(
+      '/incidentes/$incidenteId/ubicacion',
+      data: {
+        'lat': lat,
+        'lng': lng,
+        'tecnico_id': tecnicoId,
+        'es_fake': esFake,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> iniciarSimulacion(
+    String incidenteId, {
+    double velocidadKmh = 40.0,
+    bool usarFake = true,
+    double intervaloSeg = 3.0,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/incidentes/$incidenteId/simular',
+      data: {
+        'velocidad_kmh': velocidadKmh,
+        'usar_fake': usarFake,
+        'intervalo_seg': intervaloSeg,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<void> cambiarEstado(String incidenteId, String nuevoEstado, {String? comentario}) async {
+    await _dio.patch<Map<String, dynamic>>(
+      '/incidentes/$incidenteId/estado',
+      data: {
+        'estado': nuevoEstado,
+        ...comentario != null ? {'comentario': comentario} : {},
+      },
     );
   }
 }

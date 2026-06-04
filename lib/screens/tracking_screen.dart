@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart' show LatLng, Distance, LengthUnit;
 
 import '../core/api_errors.dart';
 import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
 import '../services/ws_service.dart';
+import '../shared/widgets/animated_tracking_map.dart';
 
 class TrackingScreen extends ConsumerStatefulWidget {
   const TrackingScreen({super.key, required this.incidentId});
@@ -29,10 +31,19 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   String? _statusMessage;
   double? _techLat;
   double? _techLng;
+  double? _clienteLat;
+  double? _clienteLng;
+  double? _techStartLat;
+  double? _techStartLng;
   String? _error;
   bool _loading = true;
   bool _wsConnected = false;
   bool _cancelling = false;
+  double _progresoRuta = 0.0;
+  double _distanciaRestanteKm = 0.0;
+  int _tiempoRestanteMin = 0;
+final List<LatLng> _rutaCoords = [];
+  String? _tenantId;
 
   @override
   void initState() {
@@ -49,6 +60,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       _estado = inc.estado;
       _prioridad = inc.prioridad;
       _resumenIa = inc.resumenIa;
+      _clienteLat = inc.latitud;
+      _clienteLng = inc.longitud;
     });
   }
 
@@ -72,8 +85,49 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         setState(() {
           _techLat = (data['lat'] as num?)?.toDouble();
           _techLng = (data['lng'] as num?)?.toDouble();
+          if (_techStartLat == null && _techLat != null) {
+            _techStartLat = _techLat;
+            _techStartLng = _techLng;
+          }
+          if (_clienteLat != null && _clienteLng != null && _techLat != null && _techLng != null) {
+            _actualizarProgreso();
+          }
         });
         break;
+      case 'TECH_ARRIVED':
+        setState(() {
+          _estado = 'EN_ATENCION';
+          _techLat = (data['lat'] as num?)?.toDouble();
+          _techLng = (data['lng'] as num?)?.toDouble();
+          _progresoRuta = 1.0;
+          _distanciaRestanteKm = 0;
+          _tiempoRestanteMin = 0;
+        });
+        break;
+    }
+  }
+
+  void _actualizarProgreso() {
+    if (_techLat == null || _techLng == null || _clienteLat == null || _clienteLng == null) return;
+    const distancia = Distance();
+    final clientePos = LatLng(_clienteLat!, _clienteLng!);
+    final restante = distancia.as(
+      LengthUnit.Kilometer,
+      LatLng(_techLat!, _techLng!),
+      clientePos,
+    );
+    _distanciaRestanteKm = restante;
+    _tiempoRestanteMin = (restante / 40 * 60).ceil();
+    if (restante > 0) {
+      final origenLat = _techStartLat ?? _clienteLat!;
+      final origenLng = _techStartLng ?? _clienteLng!;
+      final origen = LatLng(origenLat, origenLng);
+      final totalDist = distancia.as(LengthUnit.Kilometer, origen, clientePos);
+      _progresoRuta = (totalDist > 0)
+          ? ((totalDist - restante) / totalDist).clamp(0.0, 1.0)
+          : 0.0;
+    } else {
+      _progresoRuta = 1.0;
     }
   }
 
@@ -108,6 +162,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         setState(() => _error = 'Sesión no válida');
         return;
       }
+      _tenantId = tenantId;
 
       final stream = _ws.connect(
         tenantId: tenantId,
@@ -126,7 +181,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         onError: (e) {
           setState(() {
             _wsConnected = false;
-            if (_error == null) _error = e.toString();
+            _error ??= e.toString();
           });
         },
       );
@@ -203,7 +258,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   void dispose() {
     _sub?.cancel();
     _pollTimer?.cancel();
-    _ws.close();
+    _ws.close(tenantId: _tenantId, incidentId: widget.incidentId);
     super.dispose();
   }
 
@@ -301,40 +356,18 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                       ),
                     ],
                     const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: _techLat != null && _techLng != null
-                            ? Column(
-                                children: [
-                                  Icon(
-                                    Icons.local_shipping,
-                                    size: 48,
-                                    color: colorScheme.primary,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Text('Ubicación del técnico'),
-                                  Text(
-                                    '${_techLat!.toStringAsFixed(5)}, '
-                                    '${_techLng!.toStringAsFixed(5)}',
-                                  ),
-                                ],
-                              )
-                            : Column(
-                                children: [
-                                  Icon(
-                                    Icons.hourglass_empty,
-                                    size: 48,
-                                    color: colorScheme.outline,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Esperando ubicación del técnico…',
-                                  ),
-                                ],
-                              ),
+                    if (_clienteLat != null && _clienteLng != null)
+                      AnimatedTrackingMap(
+                        clienteLatLng: LatLng(_clienteLat!, _clienteLng!),
+                        tecnicoLatLng: _techLat != null && _techLng != null
+                            ? LatLng(_techLat!, _techLng!)
+                            : null,
+                        rutaCoords: _rutaCoords,
+                        progresoRuta: _progresoRuta,
+                        distanciaRestanteKm: _distanciaRestanteKm,
+                        tiempoRestanteMin: _tiempoRestanteMin,
+                        altura: 300,
                       ),
-                    ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
                       Text(

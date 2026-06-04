@@ -72,7 +72,7 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
       _locationError = null;
     });
     try {
-      final pos = await LocationService.current();
+      final pos = await LocationService().current();
       final address = await LocationService.addressFromPosition(pos);
       if (mounted) {
         setState(() {

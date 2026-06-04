@@ -1,7 +1,44 @@
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
-  static Future<Position> current() async {
+  static final LocationService _instance = LocationService._internal();
+  factory LocationService() => _instance;
+  LocationService._internal();
+
+  bool _usarFakeGps = false;
+  double _fakeLat = -17.7833;
+  double _fakeLng = -63.1821;
+
+  bool get usarFakeGps => _usarFakeGps;
+
+  void setUsarFakeGps(bool valor) {
+    _usarFakeGps = valor;
+  }
+
+  void setFakeCoords(double lat, double lng) {
+    _fakeLat = lat;
+    _fakeLng = lng;
+  }
+
+  double get fakeLat => _fakeLat;
+  double get fakeLng => _fakeLng;
+
+  Future<Position> current() async {
+    if (_usarFakeGps) {
+      return Position(
+        latitude: _fakeLat,
+        longitude: _fakeLng,
+        timestamp: DateTime.now(),
+        accuracy: 0,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
+    }
+
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw Exception('GPS desactivado');
     }

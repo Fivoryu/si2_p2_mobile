@@ -58,7 +58,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _locationError = null;
     });
     try {
-      final pos = await LocationService.current();
+      final pos = await LocationService().current();
       if (mounted) {
         setState(() {
           _position = pos;

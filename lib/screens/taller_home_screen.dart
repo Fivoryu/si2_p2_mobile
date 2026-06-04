@@ -16,6 +16,8 @@ class TallerHomeScreen extends ConsumerStatefulWidget {
 
 class _TallerHomeScreenState extends ConsumerState<TallerHomeScreen>
     with SingleTickerProviderStateMixin {
+  final _simulandoAsignaciones = <String, bool>{};
+
   late TabController _tabController;
 
   @override
@@ -40,6 +42,47 @@ class _TallerHomeScreenState extends ConsumerState<TallerHomeScreen>
     }
   }
 
+  Future<void> _simularRuta(Asignacion asig) async {
+    final incidenteId = asig.incidenteId;
+    if (incidenteId.isEmpty) return;
+
+    setState(() => _simulandoAsignaciones[asig.id] = true);
+
+    try {
+      await ref.read(incidenteApiProvider).iniciarSimulacion(
+        incidenteId,
+        velocidadKmh: 40.0,
+        usarFake: true,
+        intervaloSeg: 3.0,
+      );
+
+      await ref.read(incidenteApiProvider).cambiarEstado(
+        incidenteId,
+        'EN_CAMINO',
+      );
+
+      ref.invalidate(asignacionesProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Simulación iniciada. El técnico se está moviendo.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${messageFromDio(e)}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _simulandoAsignaciones[asig.id] = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final asignacionesAsync = ref.watch(asignacionesProvider);
@@ -48,6 +91,10 @@ class _TallerHomeScreenState extends ConsumerState<TallerHomeScreen>
       appBar: AppBar(
         title: const Text('Mi Taller'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => context.push('/settings/tecnico'),
+          ),
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () => _showNotificaciones(context),
@@ -92,6 +139,8 @@ class _TallerHomeScreenState extends ConsumerState<TallerHomeScreen>
                 return _AsignacionCard(
                   asignacion: asig,
                   onTap: () => context.push('/asignacion/${asig.id}'),
+                  onSimular: () => _simularRuta(asig),
+                  simulando: _simulandoAsignaciones[asig.id] ?? false,
                 );
               },
             ),
@@ -185,10 +234,17 @@ class _TallerHomeScreenState extends ConsumerState<TallerHomeScreen>
 }
 
 class _AsignacionCard extends StatelessWidget {
-  const _AsignacionCard({required this.asignacion, required this.onTap});
+  const _AsignacionCard({
+    required this.asignacion,
+    required this.onTap,
+    required this.onSimular,
+    required this.simulando,
+  });
 
   final Asignacion asignacion;
   final VoidCallback onTap;
+  final VoidCallback onSimular;
+  final bool simulando;
 
   @override
   Widget build(BuildContext context) {
@@ -307,6 +363,49 @@ class _AsignacionCard extends StatelessWidget {
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
+                  ],
+                ),
+              ],
+              if (asignacion.estado == 'ACEPTADO') ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (simulando)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Simulando...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      FilledButton.icon(
+                        onPressed: onSimular,
+                        icon: const Icon(Icons.play_arrow, size: 18),
+                        label: const Text('Simular ruta'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          textStyle: const TextStyle(fontSize: 13),
+                        ),
+                      ),
                   ],
                 ),
               ],
