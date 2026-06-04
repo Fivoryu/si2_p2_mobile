@@ -32,11 +32,11 @@ class Usuario {
     String? email,
     String? password,
   }) {
-    return {
-      if (nombre != null) 'nombre': nombre,
-      if (telefono != null) 'telefono': telefono,
-      if (email != null) 'email': email,
-      if (password != null) 'password': password,
-    };
+    final data = <String, dynamic>{};
+    if (nombre != null) data['nombre'] = nombre;
+    if (telefono != null) data['telefono'] = telefono;
+    if (email != null) data['email'] = email;
+    if (password != null) data['password'] = password;
+    return data;
   }
 }

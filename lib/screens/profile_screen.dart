@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/app_providers.dart';
+import '../data/models/usuario.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -26,7 +27,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     super.dispose();
   }
 
-  void _initFields(profile) {
+  void _initFields(Usuario? profile) {
     if (_initialized || profile == null) return;
     _nombreCtrl.text = profile.nombre;
     _telefonoCtrl.text = profile.telefono ?? '';
