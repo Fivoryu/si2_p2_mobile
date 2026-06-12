@@ -1,18 +1,13 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../firebase_options.dart';
-import 'in_app_notification_service.dart';
+import 'local_notification_service.dart';
 
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-}
+export 'local_notification_service.dart' show firebaseMessagingBackgroundHandler;
 
 class PushService {
   static bool _initialized = false;
@@ -20,14 +15,14 @@ class PushService {
   static Future<void> init(Dio dio) async {
     if (_initialized) return;
 
-    if (kIsWeb && DefaultFirebaseOptions.webOrNull == null) {
+    if (kIsWeb) {
       _initialized = true;
       return;
     }
 
-    if (!kIsWeb) {
-      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    }
+    await LocalNotificationService.init();
+
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     final fm = FirebaseMessaging.instance;
     await fm.requestPermission(
@@ -41,23 +36,22 @@ class PushService {
         debugPrint('Permiso notificaciones Android: $status');
       }
     }
+
+    await fm.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
     await _registerToken(dio, fm);
+    await LocalNotificationService.bindFirebaseMessaging(fm);
 
     fm.onTokenRefresh.listen((token) async {
       await _sendToken(dio, token);
     });
 
-    FirebaseMessaging.onMessage.listen((message) {
-      final title = message.notification?.title ?? message.data['title'] as String?;
-      final body = message.notification?.body ?? message.data['body'] as String?;
-      final incidenteId = message.data['incidente_id'] as String?;
-      if (title != null) {
-        InAppNotificationService.show(
-          title: title,
-          body: body ?? '',
-          incidenteId: incidenteId,
-        );
-      }
+    FirebaseMessaging.onMessage.listen((message) async {
+      await LocalNotificationService.showFromRemoteMessage(message);
     });
 
     _initialized = true;

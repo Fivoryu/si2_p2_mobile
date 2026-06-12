@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter/material.dart';import 'package:go_router/go_router.dart';
 
 import '../core/app_messenger.dart';
+import 'local_notification_service.dart';
 
 class InAppNotificationService {
   InAppNotificationService._();
@@ -76,6 +76,15 @@ class InAppNotificationService {
     required String body,
     String? incidenteId,
   }) {
+    if (LocalNotificationService.supported) {
+      LocalNotificationService.show(
+        title: title,
+        body: body,
+        incidenteId: incidenteId,
+      );
+      return;
+    }
+
     final messenger = scaffoldMessengerKey.currentState;
     if (messenger == null) return;
 
