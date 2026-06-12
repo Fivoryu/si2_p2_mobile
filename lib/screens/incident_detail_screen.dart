@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../core/api_errors.dart';
+import '../data/local_db.dart';
 import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
+import '../services/sync_service.dart';
 
 class IncidentDetailScreen extends ConsumerStatefulWidget {
   const IncidentDetailScreen({
@@ -27,6 +29,7 @@ class _IncidentDetailScreenState extends ConsumerState<IncidentDetailScreen> {
   bool _loading = true;
   String? _error;
   bool _cancelling = false;
+  bool _retryingSync = false;
 
   @override
   void initState() {
@@ -34,16 +37,62 @@ class _IncidentDetailScreenState extends ConsumerState<IncidentDetailScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    if (widget.localIncident != null &&
-        widget.localIncident!.isPendingSync) {
-      setState(() {
-        _detail = IncidenteDetail(
-          incidente: widget.localIncident!,
-          evidencias: [],
+  Future<void> _loadLocal(Incidente local) async {
+    final row = await LocalDb.getByIdLocal(local.id);
+    final evidencias = LocalDb.decodeEvidencias(row?['evidencias'] as String?);
+    if (!mounted) return;
+    setState(() {
+      _detail = IncidenteDetail(
+        incidente: local,
+        evidencias: evidencias,
+      );
+      _loading = false;
+      _error = null;
+    });
+  }
+
+  Future<void> _retrySync() async {
+    final local = widget.localIncident ?? _detail?.incidente;
+    if (local == null || !local.needsSync) return;
+    setState(() => _retryingSync = true);
+    try {
+      final ok = await SyncService.syncOne(local.id);
+      ref.invalidate(incidentesProvider);
+      if (!mounted) return;
+      if (ok) {
+        final row = await LocalDb.getByIdLocal(local.id);
+        final serverId = row?['id_servidor'] as String?;
+        if (!mounted) return;
+        if (serverId != null) {
+          context.go('/tracking/$serverId');
+          return;
+        }
+      }
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ok ? 'Emergencia sincronizada' : 'No se pudo sincronizar',
+            ),
+          ),
         );
-        _loading = false;
-      });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(messageFromDio(e))),
+        );
+        await _loadLocal(local);
+      }
+    } finally {
+      if (mounted) setState(() => _retryingSync = false);
+    }
+  }
+
+  Future<void> _load() async {
+    if (widget.localIncident != null && widget.localIncident!.needsSync) {
+      await _loadLocal(widget.localIncident!);
       return;
     }
 
@@ -261,19 +310,35 @@ class _IncidentDetailScreenState extends ConsumerState<IncidentDetailScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(_formatDate(inc.reportadoAt)),
-                  if (inc.isPendingSync) ...[
+                  if (inc.syncStatusLabel != null) ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
                         Icon(
-                          Icons.schedule,
+                          inc.isErrorSync
+                              ? Icons.cloud_off
+                              : inc.isPendingSync
+                                  ? Icons.schedule
+                                  : Icons.cloud_done_outlined,
                           size: 18,
-                          color: colorScheme.tertiary,
+                          color: inc.isErrorSync
+                              ? colorScheme.error
+                              : inc.isPendingSync
+                                  ? colorScheme.tertiary
+                                  : colorScheme.primary,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          'Pendiente de sincronización',
-                          style: TextStyle(color: colorScheme.tertiary),
+                        Expanded(
+                          child: Text(
+                            inc.syncStatusLabel!,
+                            style: TextStyle(
+                              color: inc.isErrorSync
+                                  ? colorScheme.error
+                                  : inc.isPendingSync
+                                      ? colorScheme.tertiary
+                                      : colorScheme.primary,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -408,13 +473,31 @@ class _IncidentDetailScreenState extends ConsumerState<IncidentDetailScreen> {
             }),
           ],
           const SizedBox(height: 24),
-          if (isActive && !inc.isPendingSync)
+          if (inc.needsSync) ...[
+            FilledButton.icon(
+              onPressed: _retryingSync ? null : _retrySync,
+              icon: _retryingSync
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync),
+              label: Text(
+                inc.isErrorSync
+                    ? 'Reintentar sincronización'
+                    : 'Sincronizar ahora',
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (isActive && !inc.needsSync)
             FilledButton.icon(
               onPressed: () => context.push('/tracking/$trackId'),
               icon: const Icon(Icons.radar),
               label: const Text('Seguimiento en vivo'),
             ),
-          if (inc.isCancelable && !inc.isPendingSync) ...[
+          if (inc.isCancelable && !inc.needsSync) ...[
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _cancelling ? null : () => _cancel(trackId),

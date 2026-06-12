@@ -52,11 +52,25 @@ class LocationService {
       throw Exception('Permiso de ubicación denegado');
     }
 
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
-    );
+    final lastKnown = await Geolocator.getLastKnownPosition();
+    final recentLast = lastKnown != null &&
+        DateTime.now().difference(lastKnown.timestamp).inMinutes < 10;
+
+    if (recentLast) {
+      return lastKnown;
+    }
+
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+    } catch (_) {
+      if (lastKnown != null) return lastKnown;
+      rethrow;
+    }
   }
 
   static Future<String> addressFromPosition(Position pos) async {

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "904373067369",
+    "project_id": "si2-p2-862ad",
+    "storage_bucket": "si2-p2-862ad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:904373067369:android:4941b507839bc4bd844cf8",
+        "android_client_info": {
+          "package_name": "com.emergencias.emergencias_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBZBjw2nP80g7TM9yCfmPp-fkz6sTbjf8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

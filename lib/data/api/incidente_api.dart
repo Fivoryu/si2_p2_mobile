@@ -65,6 +65,13 @@ Future<void> calificar(String incidenteId, int estrellas, {String? comentario}) 
     );
   }
 
+  Future<Map<String, dynamic>> getRuta(String incidenteId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/incidentes/$incidenteId/ruta',
+    );
+    return response.data!;
+  }
+
   Future<void> enviarUbicacion(
     String incidenteId, {
     required double lat,
@@ -86,15 +93,23 @@ Future<void> calificar(String incidenteId, int estrellas, {String? comentario}) 
   Future<Map<String, dynamic>> iniciarSimulacion(
     String incidenteId, {
     double velocidadKmh = 40.0,
+    double? duracionSimMin,
     bool usarFake = true,
-    double intervaloSeg = 3.0,
+    bool usarOsrm = true,
+    double intervaloSeg = 1.0,
+    double? origenLat,
+    double? origenLng,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/incidentes/$incidenteId/simular',
       data: {
         'velocidad_kmh': velocidadKmh,
+        if (duracionSimMin != null) 'duracion_sim_min': duracionSimMin,
         'usar_fake': usarFake,
+        'usar_osrm': usarOsrm,
         'intervalo_seg': intervaloSeg,
+        if (origenLat != null) 'origen_lat': origenLat,
+        if (origenLng != null) 'origen_lng': origenLng,
       },
     );
     return response.data as Map<String, dynamic>;

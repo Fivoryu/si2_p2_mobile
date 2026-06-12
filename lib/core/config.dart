@@ -13,4 +13,15 @@ class Config {
   static const demoTenantId = '22222222-0000-0000-0000-000000000001';
   static const demoEmail = 'carlos@mail.com';
   static const demoPassword = 'password123';
+  static const demoTallerEmail = 'centro@auxilionorte.com';
+
+  static String homeRouteForRol(String? rol) {
+    switch (rol) {
+      case 'TALLER':
+      case 'TECNICO':
+        return '/taller-home';
+      default:
+        return '/home';
+    }
+  }
 }

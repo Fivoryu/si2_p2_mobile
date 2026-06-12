@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
 import '../services/location_service.dart';
 import '../shared/widgets/location_map.dart';
@@ -24,7 +25,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _loadLocation();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _showSuccessMessageIfAny());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showSuccessMessageIfAny();
+      ref.invalidate(incidentesProvider);
+    });
   }
 
   void _showSuccessMessageIfAny() {
@@ -85,6 +89,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     final profileAsync = ref.watch(profileProvider);
+    final incidentesAsync = ref.watch(incidentesProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -217,7 +222,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              incidentesAsync.when(
+                loading: () => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
+                data: (items) {
+                  if (items.isEmpty) return const SizedBox.shrink();
+                  final latest = items.first;
+                  final isActive = latest.estado != 'FINALIZADO' &&
+                      latest.estado != 'PAGADO' &&
+                      latest.estado != 'CANCELADO';
+                  return Card(
+                    child: ListTile(
+                      leading: Icon(
+                        isActive ? Icons.emergency : Icons.history,
+                        color: isActive
+                            ? colorScheme.error
+                            : colorScheme.primary,
+                      ),
+                      title: Text(
+                        isActive ? 'Emergencia reciente' : 'Última emergencia',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      subtitle: Text(
+                        isActive && latest.estado == 'BUSCANDO_TALLER'
+                            ? '${Incidente.estadoLabel(latest.estado)} · Toca para ver ofertas\n'
+                              '${latest.descripcion ?? 'Sin descripción'}'
+                            : '${Incidente.estadoLabel(latest.estado)} · '
+                              '${latest.descripcion ?? 'Sin descripción'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        if (isActive) {
+                          context.push('/tracking/${latest.trackingId}');
+                        } else {
+                          context.push('/incident/${latest.trackingId}');
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: () => context.push('/new-incident'),
                 icon: const Icon(Icons.emergency, size: 28),

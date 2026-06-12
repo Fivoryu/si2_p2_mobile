@@ -17,23 +17,69 @@ class HistoryScreen extends ConsumerStatefulWidget {
 
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   bool _syncing = false;
+  final Set<String> _syncingIds = {};
 
   @override
   void initState() {
     super.initState();
     _trySync();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showMessageIfAny());
+  }
+
+  void _showMessageIfAny() {
+    final message = GoRouterState.of(context).extra;
+    if (message is! String || message.isEmpty || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<void> _trySync() async {
     setState(() => _syncing = true);
     try {
-      await SyncService.syncNow();
-    } catch (_) {
-      // offline or error — local list still shown
+      final n = await SyncService.syncNow();
+      if (mounted && n > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$n emergencia(s) sincronizada(s)')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(messageFromDio(e))),
+        );
+      }
     }
     if (mounted) {
       ref.invalidate(incidentesProvider);
       setState(() => _syncing = false);
+    }
+  }
+
+  Future<void> _retryOne(Incidente item) async {
+    if (_syncingIds.contains(item.id)) return;
+    setState(() => _syncingIds.add(item.id));
+    try {
+      final ok = await SyncService.syncOne(item.id);
+      if (!mounted) return;
+      ref.invalidate(incidentesProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? 'Emergencia sincronizada'
+                : 'No se pudo sincronizar la emergencia',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(messageFromDio(e))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _syncingIds.remove(item.id));
     }
   }
 
@@ -47,9 +93,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     }
   }
 
+  String? _syncBadge(Incidente item) {
+    if (!item.isLocal) return null;
+    if (item.isPendingSync) return 'pendiente sync';
+    if (item.isErrorSync) return 'error sync';
+    if (item.isSyncedLocal) return 'sincronizado';
+    return null;
+  }
+
+  Color? _syncBadgeColor(Incidente item, ColorScheme scheme) {
+    if (item.isErrorSync) return scheme.error;
+    if (item.isPendingSync) return scheme.tertiary;
+    if (item.isSyncedLocal) return scheme.primary;
+    return null;
+  }
+
   void _openIncident(Incidente item) {
     final trackId = item.trackingId;
-    if (item.isLocal && item.isPendingSync) {
+    if (item.isLocal && item.needsSync) {
       context.push('/incident/${item.id}', extra: item);
     } else if (item.estado == 'PENDIENTE' ||
         item.estado == 'BUSCANDO_TALLER' ||
@@ -83,6 +144,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           else
             IconButton(
               icon: const Icon(Icons.sync),
+              tooltip: 'Sincronizar pendientes',
               onPressed: _trySync,
             ),
         ],
@@ -107,7 +169,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final item = items[index];
-                final isPending = item.isPendingSync;
+                final syncBadge = _syncBadge(item);
+                final badgeColor = _syncBadgeColor(item, colorScheme);
+                final isRetrying = _syncingIds.contains(item.id);
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -117,16 +181,22 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                       vertical: 8,
                     ),
                     leading: CircleAvatar(
-                      backgroundColor: isPending
-                          ? colorScheme.tertiaryContainer
-                          : colorScheme.primaryContainer,
+                      backgroundColor: item.isErrorSync
+                          ? colorScheme.errorContainer
+                          : item.isPendingSync
+                              ? colorScheme.tertiaryContainer
+                              : colorScheme.primaryContainer,
                       child: Icon(
-                        isPending
-                            ? Icons.schedule
-                            : Icons.emergency_outlined,
-                        color: isPending
-                            ? colorScheme.onTertiaryContainer
-                            : colorScheme.onPrimaryContainer,
+                        item.isErrorSync
+                            ? Icons.cloud_off
+                            : item.isPendingSync
+                                ? Icons.schedule
+                                : Icons.emergency_outlined,
+                        color: item.isErrorSync
+                            ? colorScheme.onErrorContainer
+                            : item.isPendingSync
+                                ? colorScheme.onTertiaryContainer
+                                : colorScheme.onPrimaryContainer,
                       ),
                     ),
                     title: Text(
@@ -141,16 +211,21 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Text(Incidente.estadoLabel(item.estado)),
+                            Flexible(
+                              child: Text(
+                                Incidente.estadoLabel(item.estado),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                             if (item.prioridad != null) ...[
                               const Text(' · '),
                               Text(item.prioridad!),
                             ],
-                            if (isPending) ...[
+                            if (syncBadge != null && badgeColor != null) ...[
                               const Text(' · '),
                               Text(
-                                'pendiente sync',
-                                style: TextStyle(color: colorScheme.tertiary),
+                                syncBadge,
+                                style: TextStyle(color: badgeColor),
                               ),
                             ],
                           ],
@@ -158,7 +233,20 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         Text(_formatDate(item.reportadoAt)),
                       ],
                     ),
-                    trailing: const Icon(Icons.chevron_right),
+                    trailing: item.isErrorSync
+                        ? isRetrying
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : IconButton(
+                                icon: const Icon(Icons.refresh),
+                                tooltip: 'Reintentar sincronización',
+                                onPressed: () => _retryOne(item),
+                              )
+                        : const Icon(Icons.chevron_right),
                     onTap: () => _openIncident(item),
                   ),
                 );

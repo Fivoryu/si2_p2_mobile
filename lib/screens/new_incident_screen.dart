@@ -51,11 +51,18 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
   double? _iaConfianza;
   bool _analyzingPhoto = false;
   bool _transcribingAudio = false;
+  bool _offline = false;
 
   @override
   void initState() {
     super.initState();
+    _initOffline();
     _loadLocation();
+  }
+
+  Future<void> _initOffline() async {
+    final offline = !await SyncService.hasConnectivity();
+    if (mounted) setState(() => _offline = offline);
   }
 
   @override
@@ -72,12 +79,16 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
       _locationError = null;
     });
     try {
+      final offline = !await SyncService.hasConnectivity();
       final pos = await LocationService().current();
       final address = await LocationService.addressFromPosition(pos);
       if (mounted) {
         setState(() {
+          _offline = offline;
           _position = pos;
-          _address = address;
+          _address = offline
+              ? 'Coordenadas GPS (sin conexión)'
+              : address;
           _loadingLocation = false;
         });
       }
@@ -115,11 +126,33 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
     return evidencias;
   }
 
+  int get _evidenciaCount => _photos.length + (_audioPath != null ? 1 : 0);
+
+  int get _evidenciaSlotsLeft =>
+      SyncService.maxEvidencias - _evidenciaCount;
+
+  void _showEvidenciaLimitSnack() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Máximo ${SyncService.maxEvidencias} evidencias por emergencia',
+        ),
+      ),
+    );
+  }
+
   Future<void> _pickPhotos(ImageSource source) async {
+    if (_evidenciaSlotsLeft <= 0) {
+      _showEvidenciaLimitSnack();
+      return;
+    }
     if (source == ImageSource.gallery) {
       final picked = await _picker.pickMultiImage(imageQuality: 70);
       if (picked.isNotEmpty) {
-        setState(() => _photos = [..._photos, ...picked]);
+        final room = _evidenciaSlotsLeft;
+        final toAdd = picked.take(room).toList();
+        if (toAdd.length < picked.length) _showEvidenciaLimitSnack();
+        setState(() => _photos = [..._photos, ...toAdd]);
         await _analyzeLatestPhoto();
       }
     } else {
@@ -216,6 +249,10 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
   }
 
   Future<void> _startRecording() async {
+    if (_evidenciaSlotsLeft <= 0) {
+      _showEvidenciaLimitSnack();
+      return;
+    }
     if (!await _recorder.hasPermission()) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -289,6 +326,11 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
       return;
     }
 
+    if (_evidenciaCount > SyncService.maxEvidencias) {
+      _showEvidenciaLimitSnack();
+      return;
+    }
+
     setState(() => _saving = true);
     try {
       if (_recording) await _stopRecording();
@@ -313,6 +355,7 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
       await LocalDb.insertPending(row);
 
       var pending = true;
+      String? serverId;
       if (await SyncService.hasConnectivity()) {
         try {
           final descText = _descCtrl.text.trim();
@@ -336,6 +379,7 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
           final updated = await LocalDb.allLocal();
           final saved = updated.firstWhere((r) => r['id_local'] == idLocal);
           pending = saved['estado_sync'] == 'PENDIENTE';
+          serverId = saved['id_servidor'] as String?;
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -354,7 +398,11 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
           ? 'Emergencia registrada. Se enviará al servidor cuando haya conexión.'
           : 'Emergencia recibida correctamente. Pronto le atenderemos.';
 
-      context.go('/home', extra: message);
+      if (!pending && serverId != null) {
+        context.go('/tracking/$serverId', extra: message);
+      } else {
+        context.go('/history', extra: message);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
@@ -398,7 +446,9 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    messageFromDio(e),
+                    unauthorized
+                        ? messageFromDio(e)
+                        : 'No hay vehículos en caché. Conéctese una vez para cargarlos o reintente.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium,
                   ),
@@ -497,19 +547,23 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
                     Card(
                       clipBehavior: Clip.antiAlias,
                       child: _loadingLocation
-                          ? const Padding(
-                              padding: EdgeInsets.all(16),
+                          ? Padding(
+                              padding: const EdgeInsets.all(16),
                               child: Row(
                                 children: [
-                                  SizedBox(
+                                  const SizedBox(
                                     width: 20,
                                     height: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                     ),
                                   ),
-                                  SizedBox(width: 12),
-                                  Text('Obteniendo GPS…'),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    _offline
+                                        ? 'Obteniendo GPS (sin red)…'
+                                        : 'Obteniendo GPS…',
+                                  ),
                                 ],
                               ),
                             )
@@ -548,6 +602,7 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
                                       longitude: _position!.longitude,
                                       height: 160,
                                       borderRadius: 0,
+                                      offline: _offline,
                                     ),
                                     Padding(
                                       padding: const EdgeInsets.all(12),

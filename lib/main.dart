@@ -1,14 +1,25 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/dio_client.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
+import 'firebase_options.dart';
+import 'core/app_messenger.dart';
 import 'providers/app_providers.dart';
+import 'services/in_app_notification_service.dart';
+import 'services/push_service.dart';
 import 'services/sync_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb || DefaultFirebaseOptions.webOrNull != null) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
   SyncService.start();
   runApp(const ProviderScope(child: EmergenciasApp()));
 }
@@ -27,15 +38,26 @@ class _EmergenciasAppState extends ConsumerState<EmergenciasApp> {
     registerUnauthorizedHandler(() async {
       invalidateAuthProviders(ref);
     });
+    _initPushIfLoggedIn();
+  }
+
+  Future<void> _initPushIfLoggedIn() async {
+    if (!await ref.read(authServiceProvider).isLoggedIn()) return;
+    final dio = ref.read(dioProvider);
+    await PushService.init(dio);
+    InAppNotificationService.attachRouter(ref.read(routerProvider));
+    InAppNotificationService.start(dio);
   }
 
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
+    InAppNotificationService.attachRouter(router);
 
     return MaterialApp.router(
       title: 'Emergencias Vial',
       theme: AppTheme.light,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
     );

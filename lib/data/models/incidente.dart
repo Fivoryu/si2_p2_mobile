@@ -36,6 +36,23 @@ class Incidente {
 
   bool get isPendingSync => isLocal && estadoSync == 'PENDIENTE';
 
+  bool get isErrorSync => isLocal && estadoSync == 'ERROR';
+
+  bool get isSyncedLocal => isLocal && estadoSync == 'SINCRONIZADO';
+
+  bool get needsSync =>
+      isLocal && (estadoSync == 'PENDIENTE' || estadoSync == 'ERROR');
+
+  String? get syncStatusLabel {
+    if (!isLocal || estadoSync == null) return null;
+    return switch (estadoSync) {
+      'PENDIENTE' => 'Pendiente de sincronización',
+      'ERROR' => 'Error al sincronizar',
+      'SINCRONIZADO' => 'Sincronizado',
+      _ => null,
+    };
+  }
+
   bool get isCancelable =>
       estado == 'PENDIENTE' || estado == 'BUSCANDO_TALLER';
 
@@ -98,12 +115,14 @@ class IncidenteDetail {
     required this.evidencias,
     this.asignacion,
     this.ofertas = const [],
+    this.ultimaUbicacion,
   });
 
   final Incidente incidente;
   final List<Map<String, dynamic>> evidencias;
   final Map<String, dynamic>? asignacion;
   final List<OfertaTaller> ofertas;
+  final Map<String, dynamic>? ultimaUbicacion;
 
   factory IncidenteDetail.fromResponse(Map<String, dynamic> json) {
     return IncidenteDetail(
@@ -115,6 +134,7 @@ class IncidenteDetail {
           .cast<Map<String, dynamic>>()
           .map(OfertaTaller.fromJson)
           .toList(),
+      ultimaUbicacion: json['ultima_ubicacion'] as Map<String, dynamic>?,
     );
   }
 }

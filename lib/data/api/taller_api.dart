@@ -67,4 +67,34 @@ class TallerApi {
     final items = response.data!['items'] as List<dynamic>? ?? [];
     return items.cast<Map<String, dynamic>>();
   }
+
+  // -------- Candidatos (incidentes sin asignar donde este taller es candidato) --------
+
+  Future<void> aceptarCandidato(
+    String candidatoId, {
+    double? precioOfertado,
+    int? tiempoEstimadoMin,
+    String? tecnicoId,
+    String? comentario,
+  }) async {
+    await _dio.post<Map<String, dynamic>>(
+      '/talleres/candidatos/$candidatoId/aceptar',
+      data: {
+        'precio_ofertado': precioOfertado,
+        'tiempo_estimado_min': tiempoEstimadoMin,
+        'tecnico_id': tecnicoId,
+        'comentario': comentario,
+      },
+    );
+  }
+
+  Future<void> rechazarCandidato(
+    String candidatoId, {
+    String? motivo,
+  }) async {
+    await _dio.post<Map<String, dynamic>>(
+      '/talleres/candidatos/$candidatoId/rechazar',
+      data: {'motivo': motivo},
+    );
+  }
 }
