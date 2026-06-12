@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/models/incidente.dart';
+import '../core/config.dart';
 import '../providers/app_providers.dart';
 import '../screens/asignacion_detail_screen.dart';
+import '../screens/change_password_screen.dart';
 import '../screens/history_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/incident_detail_screen.dart';
@@ -24,7 +26,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/login',
     refreshListenable: _RouterRefresh(ref),
-    redirect: (context, state) {
+    redirect: (context, state) async {
       final loggedIn = authAsync.when<bool?>(
         data: (v) => v,
         loading: () => null,
@@ -34,10 +36,19 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       final onAuth = state.matchedLocation == '/login' ||
           state.matchedLocation == '/register';
+      final onPasswordChange = state.matchedLocation == '/change-password';
 
       if (!loggedIn && !onAuth) return '/login';
       if (loggedIn && onAuth) {
-        return '/home';
+        // Check if must change password before going to home
+        final mustChange = await ref.read(authServiceProvider).getMustChangePassword();
+        if (mustChange) return '/change-password';
+        final rol = await ref.read(authServiceProvider).getRol();
+        return Config.homeRouteForRol(rol);
+      }
+      if (loggedIn && !onPasswordChange) {
+        final mustChange = await ref.read(authServiceProvider).getMustChangePassword();
+        if (mustChange) return '/change-password';
       }
       return null;
     },
@@ -106,6 +117,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/change-password',
+        builder: (context, state) => const ChangePasswordScreen(),
       ),
       GoRoute(
         path: '/settings/tecnico',

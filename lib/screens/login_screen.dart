@@ -54,7 +54,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
     if (state.hasValue && state.value != null) {
-      context.go('/home');
+      final mustChange = await ref.read(authServiceProvider).getMustChangePassword();
+      if (mustChange) {
+        context.go('/change-password');
+      } else {
+        context.go(Config.homeRouteForRol(state.value!.rol));
+      }
     }
   }
 

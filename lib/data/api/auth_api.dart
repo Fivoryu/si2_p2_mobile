@@ -48,4 +48,14 @@ class AuthApi {
   Future<void> logout() async {
     await _dio.post<void>('/auth/logout');
   }
+
+  Future<void> changePassword({
+    required String passwordActual,
+    required String passwordNueva,
+  }) async {
+    await _dio.post<void>('/auth/change-password', data: {
+      'password_actual': passwordActual,
+      'password_nueva': passwordNueva,
+    });
+  }
 }

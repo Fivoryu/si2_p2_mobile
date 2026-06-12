@@ -22,6 +22,7 @@ class AuthService {
   static const _tenantKey = 'tenant_id';
   static const _usuarioKey = 'usuario_id';
   static const _rolKey = 'rol';
+  static const _mustChangeKey = 'must_change_password';
 
   Future<AuthSession> login({
     required String email,
@@ -60,6 +61,22 @@ class AuthService {
     await clearSession();
   }
 
+  Future<bool> getMustChangePassword() async {
+    final v = await _storage.read(key: _mustChangeKey);
+    return v == 'true';
+  }
+
+  Future<void> changePassword({
+    required String passwordActual,
+    required String passwordNueva,
+  }) async {
+    await _authApi.changePassword(
+      passwordActual: passwordActual,
+      passwordNueva: passwordNueva,
+    );
+    await _storage.delete(key: _mustChangeKey);
+  }
+
   Future<bool> isLoggedIn() async {
     final token = await _storage.read(key: _jwtKey);
     return token != null && token.isNotEmpty;
@@ -87,6 +104,10 @@ class AuthService {
     }
     await _storage.write(key: _usuarioKey, value: session.usuarioId);
     await _storage.write(key: _rolKey, value: session.rol);
+    await _storage.write(
+      key: _mustChangeKey,
+      value: session.mustChangePassword.toString(),
+    );
   }
 
   Future<void> clearSession() async {
@@ -94,5 +115,6 @@ class AuthService {
     await _storage.delete(key: _tenantKey);
     await _storage.delete(key: _usuarioKey);
     await _storage.delete(key: _rolKey);
+    await _storage.delete(key: _mustChangeKey);
   }
 }
