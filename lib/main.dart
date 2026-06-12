@@ -31,14 +31,34 @@ class EmergenciasApp extends ConsumerStatefulWidget {
   ConsumerState<EmergenciasApp> createState() => _EmergenciasAppState();
 }
 
-class _EmergenciasAppState extends ConsumerState<EmergenciasApp> {
+class _EmergenciasAppState extends ConsumerState<EmergenciasApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    SyncService.addListener((_) {
+      ref.invalidate(incidentesProvider);
+    });
     registerUnauthorizedHandler(() async {
       invalidateAuthProviders(ref);
     });
     _initPushIfLoggedIn();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      SyncService.syncNow().then((n) {
+        if (n > 0) ref.invalidate(incidentesProvider);
+      });
+    }
   }
 
   Future<void> _initPushIfLoggedIn() async {

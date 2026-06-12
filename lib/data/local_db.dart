@@ -24,8 +24,8 @@ class LocalDb {
         await _createVehiculoCacheTable(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await _createVehiculoCacheTable(database);
+        for (var v = oldVersion + 1; v <= newVersion; v++) {
+          if (v == 2) await _createVehiculoCacheTable(database);
         }
       },
     );
@@ -50,7 +50,7 @@ class LocalDb {
 
   static Future<void> _createVehiculoCacheTable(Database database) async {
     await database.execute('''
-      CREATE TABLE vehiculo_cache(
+      CREATE TABLE IF NOT EXISTS vehiculo_cache(
         id TEXT PRIMARY KEY,
         placa TEXT NOT NULL,
         marca TEXT,
@@ -173,6 +173,34 @@ class LocalDb {
           ),
         )
         .toList();
+  }
+
+  /// Resuelve un id (local o servidor) al [id_servidor] si ya sincronizó.
+  static Future<String?> serverIdFor(String idOrLocal) async {
+    final byLocal = await getByIdLocal(idOrLocal);
+    if (byLocal != null) {
+      if (byLocal['estado_sync'] == syncSynced) {
+        return byLocal['id_servidor'] as String?;
+      }
+      return null;
+    }
+    final database = await db;
+    final rows = await database.query(
+      'incidente_local',
+      columns: ['id_servidor'],
+      where: 'id_servidor = ? AND estado_sync = ?',
+      whereArgs: [idOrLocal, syncSynced],
+      limit: 1,
+    );
+    if (rows.isEmpty) return idOrLocal;
+    return rows.first['id_servidor'] as String?;
+  }
+
+  static Future<bool> needsSync(String idOrLocal) async {
+    final row = await getByIdLocal(idOrLocal);
+    if (row == null) return false;
+    final state = row['estado_sync'] as String?;
+    return state == syncPending || state == syncError;
   }
 
   static List<Map<String, dynamic>> decodeEvidencias(String? raw) {

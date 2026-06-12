@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../core/api_errors.dart';
 import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
+import '../data/local_db.dart';
 import '../services/sync_service.dart';
 
 class HistoryScreen extends ConsumerStatefulWidget {
@@ -108,11 +109,29 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     return null;
   }
 
-  void _openIncident(Incidente item) {
-    final trackId = item.trackingId;
-    if (item.isLocal && item.needsSync) {
-      context.push('/incident/${item.id}', extra: item);
-    } else if (item.estado == 'PENDIENTE' ||
+  Future<void> _openIncident(Incidente item) async {
+    if (item.needsSync) {
+      if (await SyncService.hasConnectivity()) {
+        try {
+          final serverId = await SyncService.ensureSynced(item.id);
+          if (!mounted) return;
+          ref.invalidate(incidentesProvider);
+          if (serverId != null) {
+            context.push('/tracking/$serverId');
+            return;
+          }
+        } catch (_) {}
+      }
+      if (mounted) {
+        context.push('/incident/${item.id}', extra: item);
+      }
+      return;
+    }
+
+    final serverId = await LocalDb.serverIdFor(item.trackingId);
+    final trackId = serverId ?? item.trackingId;
+    if (!mounted) return;
+    if (item.estado == 'PENDIENTE' ||
         item.estado == 'BUSCANDO_TALLER' ||
         item.estado == 'TALLER_ASIGNADO' ||
         item.estado == 'EN_CAMINO' ||
@@ -123,13 +142,31 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     }
   }
 
+  void _navigateBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final incidentesAsync = ref.watch(incidentesProvider);
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _navigateBack();
+      },
+      child: Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Volver',
+          onPressed: _navigateBack,
+        ),
         title: const Text('Historial'),
         actions: [
           if (_syncing)
@@ -254,6 +291,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             );
           },
         ),
+      ),
       ),
     );
   }

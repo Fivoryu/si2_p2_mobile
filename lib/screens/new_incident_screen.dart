@@ -400,6 +400,9 @@ class _NewIncidentScreenState extends ConsumerState<NewIncidentScreen> {
 
       if (!pending && serverId != null) {
         context.go('/tracking/$serverId', extra: message);
+      } else if (context.canPop()) {
+        context.pop();
+        if (mounted) context.push('/history', extra: message);
       } else {
         context.go('/history', extra: message);
       }

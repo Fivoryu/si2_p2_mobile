@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/local_db.dart';
 import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
 import '../services/location_service.dart';
+import '../services/sync_service.dart';
 import '../shared/widgets/location_map.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -25,9 +27,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _loadLocation();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _showSuccessMessageIfAny();
-      ref.invalidate(incidentesProvider);
+      if (await SyncService.hasConnectivity()) {
+        final n = await SyncService.syncNow();
+        if (n > 0 && mounted) ref.invalidate(incidentesProvider);
+      }
+      if (mounted) ref.invalidate(incidentesProvider);
     });
   }
 
@@ -54,6 +60,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _openIncident(
+    BuildContext context,
+    Incidente item,
+    bool isActive,
+  ) async {
+    if (item.needsSync) {
+      if (await SyncService.hasConnectivity()) {
+        try {
+          final serverId = await SyncService.ensureSynced(item.id);
+          if (!context.mounted) return;
+          ref.invalidate(incidentesProvider);
+          if (serverId != null) {
+            context.push('/tracking/$serverId');
+            return;
+          }
+        } catch (_) {}
+      }
+      if (context.mounted) {
+        context.push('/incident/${item.id}', extra: item);
+      }
+      return;
+    }
+
+    final serverId = await LocalDb.serverIdFor(item.trackingId);
+    final trackId = serverId ?? item.trackingId;
+    if (!context.mounted) return;
+    if (isActive) {
+      context.push('/tracking/$trackId');
+    } else {
+      context.push('/incident/$trackId');
+    }
   }
 
   Future<void> _loadLocation() async {
@@ -254,13 +293,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        if (isActive) {
-                          context.push('/tracking/${latest.trackingId}');
-                        } else {
-                          context.push('/incident/${latest.trackingId}');
-                        }
-                      },
+                      onTap: () => _openIncident(context, latest, isActive),
                     ),
                   );
                 },

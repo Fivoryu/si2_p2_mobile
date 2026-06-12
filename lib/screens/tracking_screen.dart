@@ -1,13 +1,17 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' show LatLng, Distance, LengthUnit;
 
 import '../core/api_errors.dart';
+import '../data/local_db.dart';
 import '../data/models/incidente.dart';
 import '../providers/app_providers.dart';
+import '../services/sync_service.dart';
+import '../shared/widgets/location_map.dart';
 import '../services/route_animator.dart';
 import '../services/ws_service.dart';
 import '../utils/route_progress.dart';
@@ -55,12 +59,110 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   bool _pagoLoading = false;
   bool _calificacionLoading = false;
   String? _tenantId;
+  String _incidentId = '';
+  String? _localId;
+  Map<String, dynamic>? _localRow;
+  bool _awaitingSync = false;
+  bool _syncingLocal = false;
+  StreamSubscription<List<ConnectivityResult>>? _connSub;
 
   @override
   void initState() {
     super.initState();
-    _loadSnapshot();
-    _connectWs();
+    _incidentId = widget.incidentId;
+    _connSub = Connectivity().onConnectivityChanged.listen((results) {
+      if (!_awaitingSync) return;
+      if (results.any((r) => r != ConnectivityResult.none)) {
+        _trySyncLocal(showLoading: true);
+      }
+    });
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final localRow = await LocalDb.getByIdLocal(widget.incidentId);
+    if (localRow != null) {
+      _localId = widget.incidentId;
+      _localRow = localRow;
+      if (localRow['estado_sync'] == LocalDb.syncSynced) {
+        _incidentId = localRow['id_servidor'] as String? ?? _incidentId;
+      } else {
+        _awaitingSync = true;
+        _applyLocalPreview();
+        await _trySyncLocal(showLoading: true);
+        return;
+      }
+    } else {
+      final serverId = await LocalDb.serverIdFor(widget.incidentId);
+      if (serverId != null) _incidentId = serverId;
+    }
+    _startLiveTracking();
+  }
+
+  void _applyLocalPreview() {
+    final row = _localRow;
+    if (row == null) return;
+    _clienteLat = (row['latitud'] as num?)?.toDouble();
+    _clienteLng = (row['longitud'] as num?)?.toDouble();
+    _estado = 'PENDIENTE';
+  }
+
+  Future<void> _trySyncLocal({bool showLoading = false}) async {
+    if (_localId == null) return;
+    if (showLoading && mounted) {
+      setState(() {
+        _syncingLocal = true;
+        _loading = true;
+        _error = null;
+      });
+    }
+    if (!await SyncService.hasConnectivity()) {
+      if (mounted) {
+        setState(() {
+          _syncingLocal = false;
+          _loading = false;
+          _awaitingSync = true;
+        });
+      }
+      return;
+    }
+    try {
+      final serverId = await SyncService.ensureSynced(_localId!);
+      ref.invalidate(incidentesProvider);
+      if (!mounted) return;
+      if (serverId != null) {
+        _incidentId = serverId;
+        _awaitingSync = false;
+        _syncingLocal = false;
+        await _startLiveTracking();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Emergencia sincronizada con el servidor'),
+            ),
+          );
+        }
+      } else {
+        setState(() {
+          _syncingLocal = false;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _syncingLocal = false;
+          _loading = false;
+          _error = messageFromDio(e);
+        });
+      }
+    }
+  }
+
+  Future<void> _startLiveTracking() async {
+    await _loadSnapshot();
+    await _connectWs();
+    _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _loadSnapshot(silent: true);
     });
@@ -197,7 +299,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     if (_clienteLat == null || _techLat == null) return;
 
     try {
-      final data = await ref.read(incidenteApiProvider).getRuta(widget.incidentId);
+      final data = await ref.read(incidenteApiProvider).getRuta(_incidentId);
       if (mounted) {
         setState(() => _applyRoutePolyline(data, animate: false));
       }
@@ -208,7 +310,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
   Future<void> _cargarOfertaAceptada() async {
     try {
-      final detail = await ref.read(incidenteApiProvider).getById(widget.incidentId);
+      final detail = await ref.read(incidenteApiProvider).getById(_incidentId);
       final aceptada = detail.ofertas.firstWhere(
         (o) => o.estado == 'ACEPTADA',
         orElse: () => OfertaTaller(id: '', tallerId: '', monto: 0, estado: ''),
@@ -223,10 +325,10 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     setState(() => _pagoLoading = true);
     try {
       await ref.read(incidenteApiProvider).pagarMock(
-        incidenteId: widget.incidentId,
+        incidenteId: _incidentId,
         cotizacionId: oferta.id,
       );
-      await ref.read(incidenteApiProvider).getById(widget.incidentId);
+      await ref.read(incidenteApiProvider).getById(_incidentId);
       if (mounted) {
         setState(() {
           _estado = 'PAGADO';
@@ -284,7 +386,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     setState(() => _calificacionLoading = true);
     try {
       await ref.read(incidenteApiProvider).calificar(
-        widget.incidentId,
+        _incidentId,
         estrellas,
         comentario: comentarioCtrl.text.trim().isEmpty ? null : comentarioCtrl.text.trim(),
       );
@@ -429,7 +531,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     if (!silent) setState(() => _loading = true);
     try {
       final detail =
-          await ref.read(incidenteApiProvider).getById(widget.incidentId);
+          await ref.read(incidenteApiProvider).getById(_incidentId);
       if (mounted) {
         _applyDetail(detail);
         await _loadRouteIfNeeded();
@@ -462,7 +564,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
       final stream = _ws.connect(
         tenantId: tenantId,
-        incidentId: widget.incidentId,
+        incidentId: _incidentId,
         token: token,
       );
 
@@ -571,7 +673,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     setState(() => _cancelling = true);
     try {
       await ref.read(incidenteApiProvider).cancel(
-            widget.incidentId,
+            _incidentId,
             motivo: motivoCtrl.text.trim().isEmpty
                 ? null
                 : motivoCtrl.text.trim(),
@@ -597,6 +699,116 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     } finally {
       motivoCtrl.dispose();
     }
+  }
+
+  Widget _buildPendingSyncBody(ThemeData theme, ColorScheme colorScheme) {
+    final desc = _localRow?['descripcion'] as String?;
+    final lat = _clienteLat;
+    final lng = _clienteLng;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Card(
+            color: colorScheme.tertiaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.cloud_upload_outlined,
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Pendiente de sincronización',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: colorScheme.onTertiaryContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'La emergencia está guardada en el teléfono. '
+                    'Al tener datos se enviará al servidor y el taller podrá verla.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (desc != null && desc.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Descripción', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(desc),
+              ),
+            ),
+          ],
+          if (lat != null && lng != null) ...[
+            const SizedBox(height: 16),
+            Text('Ubicación GPS', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  LocationMap(
+                    latitude: lat,
+                    longitude: lng,
+                    height: 160,
+                    borderRadius: 0,
+                    offline: true,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.error,
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _syncingLocal ? null : () => _trySyncLocal(showLoading: true),
+            icon: _syncingLocal
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync),
+            label: Text(
+              _syncingLocal ? 'Sincronizando…' : 'Sincronizar ahora',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   bool get _mostrarMapa =>
@@ -626,10 +838,11 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
   @override
   void dispose() {
+    _connSub?.cancel();
     _sub?.cancel();
     _pollTimer?.cancel();
     _routeAnimator.dispose();
-    _ws.close(tenantId: _tenantId, incidentId: widget.incidentId);
+    _ws.close(tenantId: _tenantId, incidentId: _incidentId);
     super.dispose();
   }
 
@@ -644,11 +857,19 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => _loadSnapshot(),
+            onPressed: () {
+              if (_awaitingSync) {
+                _trySyncLocal(showLoading: true);
+              } else {
+                _loadSnapshot();
+              }
+            },
           ),
         ],
       ),
-      body: _loading
+      body: _awaitingSync && !_syncingLocal && !_loading
+          ? _buildPendingSyncBody(theme, colorScheme)
+          : _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadSnapshot,
@@ -907,7 +1128,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                         ),
                       ),
                     ],
-                    if (_canCancel) ...[
+                    if (_canCancel && !_awaitingSync) ...[
                       const SizedBox(height: 24),
                       OutlinedButton.icon(
                         onPressed: _cancelling ? null : _cancel,
